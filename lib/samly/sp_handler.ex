@@ -32,7 +32,7 @@ defmodule Samly.SPHandler do
 
     saml_encoding = conn.body_params["SAMLEncoding"]
     saml_response = conn.body_params["SAMLResponse"]
-    relay_state = conn.body_params["RelayState"] |> safe_decode_www_form()
+    relay_state = (conn.body_params["RelayState"] || "") |> URI.decode_www_form()
 
     with {:ok, assertion} <- Helper.decode_idp_auth_resp(sp, saml_encoding, saml_response),
          :ok <- validate_authresp(conn, assertion, relay_state),
@@ -46,7 +46,7 @@ defmodule Samly.SPHandler do
       nameid = assertion.subject.name
       assertion_key = {idp_id, nameid}
       conn = State.put_assertion(conn, assertion_key, assertion)
-      target_url = auth_target_url(conn, assertion, relay_state)
+      target_url = auth_target_url(conn, idp, assertion, relay_state)
 
       conn
       |> configure_session(renew: true)
@@ -112,11 +112,11 @@ defmodule Samly.SPHandler do
     pipeline.call(conn, [])
   end
 
-  defp auth_target_url(_conn, %{subject: %{in_response_to: ""}}, ""), do: "/"
-  defp auth_target_url(_conn, %{subject: %{in_response_to: ""}}, url), do: url
+  defp auth_target_url(_conn, idp, %{subject: %{in_response_to: ""}}, ""), do: idp.target_default_url || "/"
+  defp auth_target_url(_conn, _idp, %{subject: %{in_response_to: ""}}, url), do: url
 
-  defp auth_target_url(conn, _assertion, _relay_state) do
-    get_session(conn, "target_url") || "/"
+  defp auth_target_url(conn, idp, _assertion, _relay_state) do
+    get_session(conn, "target_url") || idp.target_default_url || "/"
   end
 
   def handle_logout_response(conn) do
